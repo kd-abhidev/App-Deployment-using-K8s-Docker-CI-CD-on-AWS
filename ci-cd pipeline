@@ -1,0 +1,84 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk'jdk17'
+        nodejs'node16'
+    }
+    environment {
+    SCANNER_HOME = tool 'sonar'
+    }
+    stages {
+
+        stage('workspace clean') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Build') {
+            steps {
+                git 'https://github.com/kd-abhidev/Zomato-Clone-DevOps-Project.git'
+            }
+        }
+
+        stage('Quality check') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                        sh '''
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectName=zomato-app \
+                        -Dsonar.projectKey=zomato-app
+                        '''
+                }
+            }
+        }
+
+        stage('install-dp') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('dp-check') {
+            steps {
+                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',odcInstallation: 'dp-check' 
+                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml' 
+            }
+        }
+
+        stage('image-build') {
+            steps {
+                sh 'docker build -t kdabhidev/zomatoapp:v1 .'
+            }
+        }
+
+        stage('trivy-fs') {
+            steps {
+                sh 'trivy fs . > trivyfs.txt'
+            }
+        }
+
+        stage('image-scan') {
+            steps {
+                sh 'trivy image kdabhidev/zomatoapp:v1'
+            }
+        }
+
+        stage('image-push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh 'docker push kdabhidev/zomatoapp:v1'
+                    }
+                }
+            }
+        }
+
+        stage('deploy-container') {
+            steps {
+                sh 'docker run -itd --name c1 -p 3000:3000 kdabhidev/zomatoapp:v1'
+            }
+        }
+    }
+}
